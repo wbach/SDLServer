@@ -1,0 +1,6 @@
+GL version: 4.5.0 NVIDIA 376.53
+GLSL version: 4.50 NVIDIA
+Max supported patch vertices :32
+Allocated socket set with size:  3, of which 2 are availble for use by clients.
+Successfully resolved server host to IP: 0.0.0.0 port 1234
+Sucessfully created server socket.
