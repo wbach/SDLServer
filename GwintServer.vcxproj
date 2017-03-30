@@ -133,18 +133,20 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="GameServer.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="SDLGetway.cpp" />
+    <ClCompile Include="SDLServerGetway.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Dispatcher.h" />
+    <ClInclude Include="GameServer.h" />
     <ClInclude Include="Messages\Body.h" />
     <ClInclude Include="Messages\Header.h" />
     <ClInclude Include="Messages\Message.h" />
     <ClInclude Include="Messages\MessageParser.h" />
     <ClInclude Include="Messages\PushCardMessage.h" />
     <ClInclude Include="Messages\SwapCardMessage.h" />
-    <ClInclude Include="SDLGetway.h" />
+    <ClInclude Include="SDLServerGetway.h" />
     <ClInclude Include="User.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
