@@ -18,17 +18,20 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="SDLServerGetway.cpp">
+    <ClCompile Include="GameServer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="GameServer.cpp">
+    <ClCompile Include="..\Gwint\Cards\GameCards.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Gwint\Cards\CardReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Network\SDLServerGetway.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="User.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Dispatcher.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -50,10 +53,13 @@
     <ClInclude Include="Messages\SwapCardMessage.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="SDLServerGetway.h">
+    <ClInclude Include="GameServer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="GameServer.h">
+    <ClInclude Include="Network\SDLServerGetway.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Network\User.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

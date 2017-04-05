@@ -1,9 +1,9 @@
 #include "GameServer.h"
-
+#include <time.h>
 
 int main(int argc, char* argv[])
 {
-
+	srand((uint)time(NULL));
 	GameServer game_server;
 	/*
 	std::ofstream ofile("example_msg.xml");

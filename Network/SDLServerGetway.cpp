@@ -1,7 +1,8 @@
 #include "SDLServerGetway.h"
-#include "../GameEngine/Display/DisplayManager.hpp"
-#include "../GameEngine/Input/InputManager.h"
-#include "../GameEngine/Debug_/Log.h"
+#include <Display/DisplayManager.hpp>
+#include <Input/InputManager.h>
+#include <Debug_/Log.h>
+#include <Gwint/Network/NetworkUtils.h>
 #include <thread>
 
 SDLServerGetway & SDLServerGetway::Instance()
@@ -12,19 +13,13 @@ SDLServerGetway & SDLServerGetway::Instance()
 
 SDLServerGetway::~SDLServerGetway()
 {
-	if (buffer != nullptr)
-		delete[] buffer;
-
 	SDLNet_FreeSocketSet(socketSet);
 	SDLNet_Quit();
 	SDL_Quit();
 }
 
-void SDLServerGetway::Start(unsigned short port, unsigned short buffer_size)
+void SDLServerGetway::Start(unsigned short port)
 {
-	buffer = new char[buffer_size];
-	m_BufferSize = buffer_size;
-
 	if (SDLNet_Init() == -1)
 	{
 		Error("Failed to intialise SDL_net: " + std::string(SDLNet_GetError()));
@@ -140,7 +135,6 @@ bool SDLServerGetway::WaitForRespone(uint& user_index, const std::string & respo
 	while (1)
 	{
 		GetMessage();
-
 		if (!m_IncomingMessages.empty())
 		{
 			for (auto it = m_IncomingMessages.begin(); it != m_IncomingMessages.end(); ++it)
@@ -171,26 +165,55 @@ void SDLServerGetway::GetMessage()
 		return;
 
 	int clientNumber = -1;
+	std::list<int> clients_to_remove;
+
 	for (auto& user : users)
 	{
 		clientNumber++;
 
-		int clientSocketActivity = SDLNet_SocketReady(user.socket);
+		std::list<std::string> incoming_messages;
+		bool complex_recv;
+		auto receivedByteCount = NetworkUtils::CheckIncomingMessage(incoming_messages, user.socket, complex_recv);
 
-		if (clientSocketActivity == 0)
+		//socet not active
+		if (receivedByteCount == -2)
 			continue;
 
-		int receivedByteCount = SDLNet_TCP_Recv(user.socket, buffer, m_BufferSize);
-
-		if (receivedByteCount <= 0)
+		//error whed recv
+		if (receivedByteCount == -1)
 		{
-			Log("Client " + std::to_string(clientNumber) + " disconnected.");
-			DisconnectUser(user, clientNumber);
-			Log("Server is now connected to: " + std::to_string(m_ClientsCount) + " client(s).");
+			clients_to_remove.push_back(user.id);
 			continue;
 		}
-		m_IncomingMessages.insert({ clientNumber, std::string(buffer) });
+
+		for(auto& str : incoming_messages)
+			m_IncomingMessages.insert({ clientNumber, str});
 	}
+
+	for (auto& i : clients_to_remove)
+	{
+		Log("Client id: " + std::to_string(i) + " disconnected.");
+		DisconnectUser(i);
+		Log("Server is now connected to: " + std::to_string(m_ClientsCount) + " client(s).");
+	}
+}
+
+std::string SDLServerGetway::GetMessage(uint player_index)
+{
+	if (!m_IncomingMessages.empty())
+	{
+		for (auto it = m_IncomingMessages.begin(); it != m_IncomingMessages.end(); ++it)
+		{
+			if (it->first == player_index)
+			{
+				auto msg = it->second;
+				m_IncomingMessages.erase(it);
+				return msg;
+			}
+		}
+	}
+
+	return std::string();
 }
 
 std::string SDLServerGetway::GetFirstMessageToUser(uint index)
@@ -207,10 +230,9 @@ std::string SDLServerGetway::GetFirstMessageToUser(uint index)
 	return std::string();
 }
 
-void SDLServerGetway::SendMessage(const UserData & user, const std::string & message)
+void SDLServerGetway::SendMessage(const UserData& user, const std::string & message)
 {
-	auto sended_bytes = SDLNet_TCP_Send(user.socket, (void *)message.c_str(), message.size() + 1);
-	Log("Sended message, size : " + std::to_string(sended_bytes) + "/" + std::to_string(message.size() + 1) + " (" + std::to_string((int)(((float)sended_bytes/(float)(message.size() + 1))*100.f)) + "%)");
+	NetworkUtils::SendMessage(user.socket, message);
 }
 
 void SDLServerGetway::SendMessage(uint user, const std::string & message)
@@ -218,58 +240,35 @@ void SDLServerGetway::SendMessage(uint user, const std::string & message)
 	if (user >= users.size())
 		return;
 
-	auto msize = message.size();
-	uint max_frame_size = 511;
-	if (msize > max_frame_size)
-	{
-		auto c_message = message;
-		std::vector<std::string> parts;
-		while (1)
-		{
-			auto delta = msize - max_frame_size;
-			if (c_message.size() > max_frame_size)
-			{
-				std::string part = c_message.substr(0, max_frame_size);
-				parts.push_back(part);
-				c_message = c_message.substr(max_frame_size);
-			}
-			else
-			{
-				parts.push_back(c_message);
-				break;
-			}
-		}
-		//std::cout << "Sending message which size is over "+ std::to_string(max_frame_size) + ", size : " << message.size() << std::endl;
-		std::string start_msg("START_SEND_PARTS");
-		SendMessage(users[user], start_msg);
-		for (const auto& part : parts)
-		{
-			//std::cout << "Sending part, size : " << part.size() << std::endl;
-			SendMessage(users[user], part);
-		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(100));
-		std::string end_msg("END_SEND_PARTS");
-		SendMessage(users[user], end_msg);
-		//std::cout << "End sending message which size is over "+ std::to_string(max_frame_size) +", size. " << std::endl;
-	}
-	else
-	{
-		//std::cout << "Sending message, size : " << message.size() << std::endl;
-		SendMessage(users[user], message);
-	}	
+	NetworkUtils::SendMessage(users[user].socket, message);
 }
 
 void SDLServerGetway::SendMessage(std::string & message)
 {
 	for (const auto& user : users)
-		SendMessage(user, message);
+	{
+		NetworkUtils::SendMessage(user.socket, message);
+	}
 }
 
-void SDLServerGetway::DisconnectUser(UserData & user, uint i)
+void SDLServerGetway::DisconnectUser(uint user_id)
 {
-	//...so output a suitable message and then...		
-	SDLNet_TCP_DelSocket(socketSet, user.socket);
-	SDLNet_TCP_Close(user.socket);
-	users.erase(users.begin() + i);
-	m_ClientsCount--;
+	//...so output a suitable message and then...
+
+	for (uint x = 0; x < users.size(); ++x)
+	{
+		if (users[x].id == user_id)
+		{
+			SDLNet_TCP_DelSocket(socketSet, users[x].socket);
+			SDLNet_TCP_Close(users[x].socket);
+			users.erase(users.begin() + x);
+			m_ClientsCount--;
+			return;
+		}
+	}	
+}
+
+void SDLServerGetway::ClearMessages()
+{
+	m_IncomingMessages.clear();
 }
