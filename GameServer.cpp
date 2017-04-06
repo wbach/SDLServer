@@ -27,6 +27,12 @@ void GameServer::Start()
 	SDLServerGetway::Instance().Start();
 
 	GameCards::Instance().LoadCards();
+
+	StartGame();
+}
+
+void GameServer::StartGame()
+{
 	auto cards = GameCards::Instance().GetCards();
 
 	player[0].player.cards_in_deck = cards[DeckType::NORTH];
@@ -118,6 +124,9 @@ void GameServer::Update()
 		case GameStates::PLAYER_2_MOVE:
 			if (Player2Move())
 				ChangeState(GameStates::PLAYER_1_MOVE);
+			break;
+		case GameStates::END_ROUND:
+			EndRound();
 			break;
 		}		
 
@@ -296,50 +305,73 @@ void GameServer::SwapCardsPlayer(uint player_index)
 void GameServer::AddPushCard(const GwentMessages::PushCardMessage & msg, uint player_index)
 {
 	uint index = 0;
-	auto cards = player[player_index].player.cards_in_hand;
+	auto& cards = player[player_index].player.cards_in_hand;
 	for (const auto& card : cards)
 	{
 		if (card.name == msg.card_name)
 		{
-			GameLines[player_index][card.type].AddCard(card);
-			cards.erase(cards.begin() + index);
+			if (card.FindSkill(Skills::Spy))
+			{
+				GameLines[!player_index][card.type].AddCard(card);
+				player[player_index].player.TakeSingleCard();
+				player[player_index].player.TakeSingleCard();
+				cards.erase(cards.begin() + index);
+			}
+			else
+			{
+				GameLines[player_index][card.type].AddCard(card);
+				cards.erase(cards.begin() + index);
+			}
 			return;
 		}
 		index++;
 	}
 }
 
-GwentMessages::ScoreMessage GameServer::PrepareScoreMsg(uint player)
+GwentMessages::ScoreMessage GameServer::PrepareScoreMsg(uint player_index)
 {
 	GwentMessages::ScoreMessage score_msg;
 	score_msg.scorePlayer[GwentMessages::ScoreMessage::Total] = 0;
 	score_msg.scoreEnemy[GwentMessages::ScoreMessage::Total] = 0;
 
+	if (player_index == 1)
+	{
+		score_msg.wonRounds[0] = player[1].won_rounds;
+		score_msg.wonRounds[1] = player[0].won_rounds;
+	}
+	else
+	{
+		score_msg.wonRounds[1] = player[1].won_rounds;
+		score_msg.wonRounds[0] = player[0].won_rounds;
+	}
+
 	for (auto& line : GameLines[0])
 	{
 		int s = line.second.CalculateStrengthLine();
+		player[0].totalScore += s;
+
 		switch (line.first)
 		{
 		case LineTypes::CLOSE_COMBAT:
-			if(player == 0)
+			if(player_index == 0)
 				score_msg.scorePlayer[GwentMessages::ScoreMessage::Line1] = s;
 			else
 				score_msg.scoreEnemy[GwentMessages::ScoreMessage::Line1] = s;
 			break;
 		case LineTypes::ARCHEER:
-			if (player == 0)
+			if (player_index == 0)
 				score_msg.scorePlayer[GwentMessages::ScoreMessage::Line2] = s;
 			else
 				score_msg.scoreEnemy[GwentMessages::ScoreMessage::Line2] = s;
 			break;
 		case LineTypes::BALIST:
-			if (player == 0)
+			if (player_index == 0)
 				score_msg.scorePlayer[GwentMessages::ScoreMessage::Line3] = s;
 			else
 				score_msg.scoreEnemy[GwentMessages::ScoreMessage::Line3] = s;
 			break;
 		}
-		if (player == 0)
+		if (player_index == 0)
 			score_msg.scorePlayer[GwentMessages::ScoreMessage::Total] += s;
 		else
 			score_msg.scoreEnemy[GwentMessages::ScoreMessage::Total] += s;
@@ -349,28 +381,30 @@ GwentMessages::ScoreMessage GameServer::PrepareScoreMsg(uint player)
 	for (auto& line : GameLines[1])
 	{
 		int s = line.second.CalculateStrengthLine();
+		player[1].totalScore += s;
+
 		switch (line.first)
 		{
 		case LineTypes::CLOSE_COMBAT:
-			if (player == 1)
+			if (player_index == 1)
 				score_msg.scorePlayer[GwentMessages::ScoreMessage::Line1] = s;
 			else
 				score_msg.scoreEnemy[GwentMessages::ScoreMessage::Line1] = s;
 			break;
 		case LineTypes::ARCHEER:
-			if (player == 1)
+			if (player_index == 1)
 				score_msg.scorePlayer[GwentMessages::ScoreMessage::Line2] = s;
 			else
 				score_msg.scoreEnemy[GwentMessages::ScoreMessage::Line2] = s;
 			break;
 		case LineTypes::BALIST:
-			if (player == 1)
+			if (player_index == 1)
 				score_msg.scorePlayer[GwentMessages::ScoreMessage::Line3] = s;
 			else
 				score_msg.scoreEnemy[GwentMessages::ScoreMessage::Line3] = s;
 			break;
 		}
-		if (player == 1)
+		if (player_index == 1)
 			score_msg.scorePlayer[GwentMessages::ScoreMessage::Total] += s;
 		else
 			score_msg.scoreEnemy[GwentMessages::ScoreMessage::Total] += s;
@@ -458,6 +492,13 @@ bool GameServer::StartGameProcedure()
 
 bool GameServer::Player1Move()
 {
+	if (player[0].end_move && player[1].end_move)
+	{
+		ChangeState(GameStates::END_ROUND);
+		SDLServerGetway::Instance().SendMessage(std::string("END_ROUND"));
+		return false;
+	}
+
 	auto msg = SDLServerGetway::Instance().GetMessage(0);
 
 	if (!msg.empty())
@@ -466,20 +507,31 @@ bool GameServer::Player1Move()
 
 		if (push_card_msg.Serialized(msg))
 		{
+			AddPushCard(push_card_msg, 0);
+			push_card_msg.cardsLeftInDeck = player[0].player.cards_in_deck.size();
+			push_card_msg.cardsLeftInHand = player[0].player.cards_in_hand.size();
+
 			SDLServerGetway::Instance().SendMessage(0, push_card_msg.ToString());
 			push_card_msg.player = GwentMessages::Player::ENEMY;
 			SDLServerGetway::Instance().SendMessage(1, push_card_msg.ToString());
-			AddPushCard(push_card_msg, 0);
 
 			SDLServerGetway::Instance().SendMessage(0, PrepareScoreMsg(0).ToString());
 			SDLServerGetway::Instance().SendMessage(1, PrepareScoreMsg(1).ToString());
 
 			Log("P1 push card :\n" + msg);
 		}
+		else if(msg == "PLAYER_PASS")
+		{
+			Log("P1 pass :\n");
+			player[0].end_move = true;
+			SDLServerGetway::Instance().SendMessage(0, std::string("PASS_OK"));
+			SDLServerGetway::Instance().SendMessage(1, std::string("ENEMY_PASS"));
+			return true;
+		}
 	}	
 
 	uint pIndex = 0;
-	if (SDLServerGetway::Instance().WaitForRespone(pIndex, "PUSH_CARD_OK", 10) || player[0].player.cards_in_hand.empty())
+	if (SDLServerGetway::Instance().WaitForRespone(pIndex, "PUSH_CARD_OK", 10) || player[0].player.cards_in_hand.empty() || player[0].end_move)
 	{
 		//player[pIndex].pushed_card = true;
 		SDLServerGetway::Instance().SendMessage(0, std::string("END_MOVE"));
@@ -495,6 +547,14 @@ bool GameServer::Player1Move()
 
 bool GameServer::Player2Move()
 {
+	if (player[0].end_move && player[1].end_move)
+	{
+		ChangeState(GameStates::END_ROUND);
+		ClearGameLines();
+		SDLServerGetway::Instance().SendMessage(std::string("END_ROUND"));
+		return false;
+	}
+
 	auto msg = SDLServerGetway::Instance().GetMessage(1);
 
 	if (!msg.empty())
@@ -503,21 +563,32 @@ bool GameServer::Player2Move()
 
 		if (push_card_msg.Serialized(msg))
 		{
-			SDLServerGetway::Instance().SendMessage(1, push_card_msg.ToString());
-			push_card_msg.player = GwentMessages::Player::ENEMY;
-			SDLServerGetway::Instance().SendMessage(0, push_card_msg.ToString());
 			AddPushCard(push_card_msg, 1);
+			push_card_msg.cardsLeftInDeck = player[1].player.cards_in_deck.size();
+			push_card_msg.cardsLeftInHand = player[1].player.cards_in_hand.size();
+
+			SDLServerGetway::Instance().SendMessage(1, push_card_msg.ToString());
+			push_card_msg.player = GwentMessages::Player::ENEMY;			
+			SDLServerGetway::Instance().SendMessage(0, push_card_msg.ToString());
+			
 
 			SDLServerGetway::Instance().SendMessage(0, PrepareScoreMsg(0).ToString());
-			SDLServerGetway::Instance().SendMessage(1, PrepareScoreMsg(1).ToString());
-		
+			SDLServerGetway::Instance().SendMessage(1, PrepareScoreMsg(1).ToString());		
 
 			Log("P2 push card : \n" + msg);
+		}
+		else if (msg == "PLAYER_PASS")
+		{
+			Log("P1 pass :\n");
+			player[1].end_move = true;
+			SDLServerGetway::Instance().SendMessage(1, std::string("PASS_OK"));
+			SDLServerGetway::Instance().SendMessage(0, std::string("ENEMY_PASS"));
+			return true;
 		}
 	}
 
 	uint pIndex = 0;
-	if (player[1].player.cards_in_hand.empty() || SDLServerGetway::Instance().WaitForRespone(pIndex, "PUSH_CARD_OK", 10))
+	if (player[1].player.cards_in_hand.empty() || SDLServerGetway::Instance().WaitForRespone(pIndex, "PUSH_CARD_OK", 10) || player[1].end_move)
 	{
 		//player[pIndex].pushed_card = true;
 		SDLServerGetway::Instance().SendMessage(1, std::string("END_MOVE"));
@@ -535,4 +606,74 @@ void GameServer::ChangeState(GameStates state)
 {
 	current_state = state;
 	SDLServerGetway::Instance().ClearMessages();
+}
+
+void GameServer::EndRound()
+{
+	if (player[0].totalScore > player[1].totalScore)
+	{
+		++player[0].won_rounds;
+	}
+	else if (player[0].totalScore < player[1].totalScore)
+	{
+		++player[1].won_rounds;
+	}
+	else
+	{
+		++player[1].won_rounds;
+		++player[0].won_rounds;
+	}
+
+	if (player[0].won_rounds < 2 && player[1].won_rounds < 2)
+	{
+		player[0].ResetToNextMove();
+		player[1].ResetToNextMove();
+		ClearGameLines();
+		ChangeState(GameStates::START_GAME);
+	}
+	else
+	{
+		if (player[0].totalScore > player[1].totalScore)
+		{
+			SDLServerGetway::Instance().SendMessage(0, "YOU_WON");
+			SDLServerGetway::Instance().SendMessage(1, "YOU_LOSE");
+		}
+		else if (player[0].totalScore < player[1].totalScore)
+		{
+			SDLServerGetway::Instance().SendMessage(1, "YOU_WON");
+			SDLServerGetway::Instance().SendMessage(0, "YOU_LOSE");
+		}
+		else
+		{
+			SDLServerGetway::Instance().SendMessage(0, "YOU_LOSE");
+			SDLServerGetway::Instance().SendMessage(1, "YOU_LOSE");
+		}
+
+		ChangeState(GameStates::WAIT_FOR_PLAYERS);
+		ClearGameLines();
+		player[0].Reset();
+		player[1].Reset();
+		SDLServerGetway::Instance().DisconnectAll();
+		StartGame();
+		Log("Wait for players to start new game...");
+	}
+}
+
+void GameServer::ClearGameLines()
+{
+	GameLines[0].clear();
+	GameLines[1].clear();
+
+	GameLines[0] =
+	{
+		{ LineTypes::CLOSE_COMBAT, GameLine(glm::vec3(-.225f, 0.015, .63f)) },
+		{ LineTypes::ARCHEER, GameLine(glm::vec3(-.225f, -0.225, .63f)) },
+		{ LineTypes::BALIST, GameLine(glm::vec3(-.225f, -0.48, .63f)) }
+	};
+	GameLines[1] =
+	{
+		{ LineTypes::CLOSE_COMBAT, GameLine(glm::vec3(-.225f, 0.015, .63f)) },
+		{ LineTypes::ARCHEER, GameLine(glm::vec3(-.225f, -0.225, .63f)) },
+		{ LineTypes::BALIST, GameLine(glm::vec3(-.225f, -0.48, .63f)) }
+	};
 }

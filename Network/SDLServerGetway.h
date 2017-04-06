@@ -25,6 +25,7 @@ public:
 	void ClearMessages();
 	int GetUserCount() { return m_ClientsCount; }
 	std::multimap<int, std::string> m_IncomingMessages;
+	void DisconnectAll();
 private:
 	IPaddress serverIP;                  // The IP of the server (this will end up being 0.0.0.0 - which means roughly "any IP address")
 	TCPsocket serverSocket;              // The server socket that clients will use to connect to us

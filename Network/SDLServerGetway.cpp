@@ -192,9 +192,9 @@ void SDLServerGetway::GetMessage()
 
 	for (auto& i : clients_to_remove)
 	{
-		Log("Client id: " + std::to_string(i) + " disconnected.");
+		
 		DisconnectUser(i);
-		Log("Server is now connected to: " + std::to_string(m_ClientsCount) + " client(s).");
+		
 	}
 }
 
@@ -254,15 +254,17 @@ void SDLServerGetway::SendMessage(std::string & message)
 void SDLServerGetway::DisconnectUser(uint user_id)
 {
 	//...so output a suitable message and then...
-
+	
 	for (uint x = 0; x < users.size(); ++x)
 	{
 		if (users[x].id == user_id)
 		{
+			Log("Client id: " + std::to_string(user_id) + " disconnected.");
 			SDLNet_TCP_DelSocket(socketSet, users[x].socket);
 			SDLNet_TCP_Close(users[x].socket);
 			users.erase(users.begin() + x);
 			m_ClientsCount--;
+			Log("Server is now connected to: " + std::to_string(m_ClientsCount) + " client(s).");
 			return;
 		}
 	}	
@@ -271,4 +273,10 @@ void SDLServerGetway::DisconnectUser(uint user_id)
 void SDLServerGetway::ClearMessages()
 {
 	m_IncomingMessages.clear();
+}
+
+void SDLServerGetway::DisconnectAll()
+{
+	for(auto& user : users)
+		DisconnectUser(user.id);
 }
